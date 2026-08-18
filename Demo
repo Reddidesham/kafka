@@ -1,0 +1,173 @@
+package com.example.kafka;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.web.bind.annotation.*;
+
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.common.serialization.StringDeserializer;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@SpringBootApplication
+@RestController
+@RequestMapping("/orders")
+public class KafkaDemoApplication {
+
+    private static final String TOPIC = "orders";
+
+    private final KafkaTemplate<String, String> kafkaTemplate;
+
+    public KafkaDemoApplication(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(KafkaDemoApplication.class, args);
+    }
+
+    // =========================
+    // PRODUCER CONFIGURATION
+    // =========================
+
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+
+        Map<String, Object> config = new HashMap<>();
+
+        config.put(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                "localhost:9092"
+        );
+
+        config.put(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class
+        );
+
+        config.put(
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class
+        );
+
+        return new DefaultKafkaProducerFactory<>(config);
+    }
+
+    @Bean
+    public KafkaTemplate<String, String> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+
+    // =========================
+    // CONSUMER CONFIGURATION
+    // =========================
+
+    @Bean
+    public ConsumerFactory<String, String> consumerFactory() {
+
+        Map<String, Object> config = new HashMap<>();
+
+        config.put(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                "localhost:9092"
+        );
+
+        config.put(
+                ConsumerConfig.GROUP_ID_CONFIG,
+                "order-consumer-group"
+        );
+
+        config.put(
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class
+        );
+
+        config.put(
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class
+        );
+
+        config.put(
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                "earliest"
+        );
+
+        return new DefaultKafkaConsumerFactory<>(config);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String>
+    kafkaListenerContainerFactory() {
+
+        ConcurrentKafkaListenerContainerFactory<String, String> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+
+        factory.setConsumerFactory(consumerFactory());
+
+        return factory;
+    }
+
+    // =========================
+    // PRODUCER
+    // =========================
+
+    @PostMapping
+    public String createOrder(@RequestBody Order order) {
+
+        String message =
+                "OrderId=" + order.orderId()
+                + ", Customer=" + order.customerName()
+                + ", Amount=" + order.amount();
+
+        kafkaTemplate.send(TOPIC, order.orderId(), message);
+
+        System.out.println("PRODUCER -> " + message);
+
+        return "Order sent to Kafka successfully";
+    }
+
+    // =========================
+    // CONSUMER
+    // =========================
+
+    @KafkaListener(
+            topics = TOPIC,
+            groupId = "order-consumer-group"
+    )
+    public void consumeOrder(String message) {
+
+        System.out.println("CONSUMER <- " + message);
+
+        // Business logic
+        processOrder(message);
+    }
+
+    private void processOrder(String message) {
+
+        System.out.println(
+                "Processing order: " + message
+        );
+    }
+
+    // =========================
+    // ORDER MODEL
+    // =========================
+
+    public record Order(
+            String orderId,
+            String customerName,
+            double amount
+    ) {
+    }
+}
